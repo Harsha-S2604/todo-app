@@ -27,23 +27,27 @@ struct Todo {
 	next_id: u64,
 }
 
-fn create_app_directory() -> Result<PathBuf, io::Error> {
-	let home_dir = env::var("HOME").expect("Failed to find the home directory");
-	
-	// use pathbuf to construct a path
-	let mut path = PathBuf::from(home_dir);
-	path.push(".local");
-	path.push("share");
-	path.push("todo_app");
+fn get_app_directory() -> Result<PathBuf, io::Error> {
+    
+    let home_dir = env::var("HOME").expect("Failed to find the home directory");
+    let mut path = PathBuf::from(home_dir);
 
-	fs::create_dir_all(&path)?;
+    path.push(".local");
+    path.push("share");
+    path.push("todo_app");
+    fs::create_dir_all(&path)?;
+    
+    Ok(path)
+}
 
-	Ok(path)
+fn get_file_path() -> Result<PathBuf, io::Error> {
+    let mut path = get_app_directory()?;
+    path.push("todo.json");
+    Ok(path)
 }
 
 fn create_app_file() -> Result<PathBuf, io::Error> {
-	let mut app_dir = create_app_directory()?;
-	app_dir.push("todo.json");
+	let mut app_dir = get_file_path()?;
 	if !app_dir.exists() {
 		let mut file = fs::File::create(&app_dir)?;
 		file.write_all("{\"tasks\": [], \"next_id\": 1}".as_bytes())?;
@@ -72,6 +76,7 @@ impl Todo {
 	}
 
 	fn list_tasks(&self) {
+        println!("\n========== TASKS ==========\n");
 		for task in &self.tasks {
 			println!("{:#?}. {:#?} -> {:#?}", task.id, task.task_name, task.status);
 		}
@@ -87,6 +92,24 @@ impl Todo {
 		self.tasks.push(task);
 		self.next_id += 1;
 	}
+
+    fn delete_task(&mut self, id: u64) {
+        if let Some(idx) = self.tasks.iter().position(|task| task.id == id) {
+            self.tasks.swap_remove(idx);
+            println!("Task number {id} deleted");
+        } else {
+            println!("no such tasks");
+        }
+    }
+
+    fn sync(&self) -> Result<(), io::Error>{
+        println!("\nSyncing...\n");
+        let path = get_file_path()?;
+        let todo_json = serde_json::to_string_pretty(&self)?;
+        let mut file = fs::File::create(&path)?;
+        file.write_all(todo_json.as_bytes())?;
+        Ok(())
+    }
 }
 
 fn main() {
@@ -127,10 +150,33 @@ fn main() {
 				todo.add_task(task_name);
 			},
 			"2" => {
-				println!("\n========== TASKS ==========\n");
 				todo.list_tasks();
 			},
+            "4" => {
+                todo.list_tasks();
+                println!("\nPlease enter the task id to delete\n");
+                let mut task_id = String::from("");
+                io::stdin().read_line(&mut task_id).unwrap();
+                let task_id = task_id.trim();
+                let task_id: u64 = task_id.parse().unwrap();
+                todo.delete_task(task_id); 
+            },
 			"5" => {
+                if let Ok(r) = todo.sync() {
+                    break;
+                } else {
+                    eprintln!("(ERROR)::Failed to sync the DB.");
+                    println!("\nWould you like to still exit?(y/n)");
+                    println!("WARNING: All the new data will lost");
+                    
+                    let mut input = String::from("");
+                    io::stdin().read_line(&mut input).expect("Failed to read the input");
+                    if input == "y" {
+                        break;
+                    }
+
+                    continue;
+                }
 				break;
 			},
 			_ => {
